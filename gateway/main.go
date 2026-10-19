@@ -75,7 +75,7 @@ func main() {
 			r.SetURL(targetURL)
 		},
 		ErrorHandler: func(w http.ResponseWriter, r *http.Request, err error) {
-			// The code below is in case we wanted to use the http.ResponseWriter instea of http.Error
+			// The code below is in case we wanted to use the http.ResponseWriter instead of http.Error
 			// h := w.Header()
 			// h.Del("Content-Length")
 			// h.Set("Content-Type", "text/plain; charset=utf-8")
