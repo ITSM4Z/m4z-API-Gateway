@@ -1,7 +1,9 @@
 package main
 
 import (
+	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"os"
 	"time"
@@ -20,5 +22,7 @@ func main() {
 		fmt.Fprintf(w, "Response from Mock Backend (%s) \nURL:%s \nX-Forwarded-For: %s \n", port, r.URL.Path, r.Header.Get("X-Forwarded-For"))
 	})
 
-	fmt.Println(s.ListenAndServe())
+	if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }
