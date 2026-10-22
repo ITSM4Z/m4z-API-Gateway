@@ -1,14 +1,12 @@
 package main
 
 import (
-	"context"
+	"errors"
 	"fmt"
 	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
-	"sync"
 	"time"
 )
 
@@ -111,17 +109,24 @@ func main() {
 		"/orders": "http://localhost:9002",
 	}
 
-	serverRoutes := make(map[string]*url.URL)
+	serverRoutes := make(map[string]*RouteConfig)
 
 	for prefix, targetStr := range rawRoutes {
-		serverURL, err := url.Parse(targetStr)
+		parsedURL, err := url.Parse(targetStr)
 
 		if err != nil {
 			fmt.Printf("An Error occured while parsing (%s): %v", targetStr, err)
 			return
 		}
 
-		serverRoutes[prefix] = serverURL
+		serverRoutes[prefix] = &RouteConfig{
+			URL: parsedURL,
+			Breaker: &CircuitBreaker{
+				failureThreshold: 3,
+				cooldown:         10 * time.Second,
+				state:            StateClosed,
+			},
+		}
 	}
 
 	// The pool of reusable TCP Pipes the Gateway will be using when talking to :9000
@@ -177,5 +182,7 @@ func main() {
 		MaxHeaderBytes: 1 << 20,
 	}
 
-	s.ListenAndServe()
+	if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
+		log.Fatal(err)
+	}
 }
