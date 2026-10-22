@@ -13,6 +13,8 @@ type ClientBucket struct {
 	lastSeen   time.Time
 }
 
+// RateLimiter enforces per-IP request limits using an in-memory
+// Token Bucket algorithm protected by a mutex
 type RateLimiter struct {
 	mu         sync.Mutex
 	clients    map[string]*ClientBucket
@@ -20,7 +22,7 @@ type RateLimiter struct {
 	refillRate float64
 }
 
-// handles the rate limiting by managing client's bucket tokens
+// Middleware handles the rate limiting by managing client's bucket tokens
 func (rl *RateLimiter) Middleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		// get the host and discard the port

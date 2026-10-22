@@ -14,6 +14,8 @@ const (
 	StateOpen                         // 2: Failing fast
 )
 
+// CircuitBreaker implements a thread-safe state machine (Closed, Half-Open, Open)
+// that prevents cascading failures when a downstream backend is unhealthy
 type CircuitBreaker struct {
 	mu               sync.Mutex
 	state            BreakerState
@@ -46,6 +48,8 @@ func (s BreakerState) String() string {
 	}
 }
 
+// AllowRequest checks if the circuit is Closed or can transition from Open to Half-Open
+// after the cooldown period
 func (cb *CircuitBreaker) AllowRequest() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -68,6 +72,8 @@ func (cb *CircuitBreaker) AllowRequest() bool {
 	return false
 }
 
+// RecordResult updates the breaker state based on the downstream HTTP status code
+// switches to Open when consecutive 5xx failures reach failureThreshold
 func (cb *CircuitBreaker) RecordResult(statusCode int) {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()

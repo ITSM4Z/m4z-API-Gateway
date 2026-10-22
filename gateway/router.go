@@ -19,6 +19,8 @@ type RouteConfig struct {
 	Breaker *CircuitBreaker
 }
 
+// GatewayRouter performs longest-prefix matching against registered routes
+// and coordinates per-route circuit breaking before proxying
 type GatewayRouter struct {
 	mu     sync.RWMutex
 	routes map[string]*RouteConfig
