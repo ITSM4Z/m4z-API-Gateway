@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 )
 
@@ -20,7 +21,11 @@ func main() {
 	}
 
 	http.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Response from Mock Backend (%s) \nURL:%s \nX-Forwarded-For: %s \n", port, r.URL.Path, r.Header.Get("X-Forwarded-For"))
+		if strings.HasSuffix(r.URL.Path, "/fail") {
+			http.Error(w, "Backend Crash Scenario", http.StatusInternalServerError)
+		} else {
+			fmt.Fprintf(w, "Response from Mock Backend (%s) \nURL:%s \nX-Forwarded-For: %s \n", port, r.URL.Path, r.Header.Get("X-Forwarded-For"))
+		}
 	})
 
 	if err := s.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
