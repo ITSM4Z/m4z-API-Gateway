@@ -33,6 +33,19 @@ func (rec *statusRecorder) WriteHeader(code int) {
 	rec.ResponseWriter.WriteHeader(code)
 }
 
+func (s BreakerState) String() string {
+	switch s {
+	case StateClosed:
+		return "CLOSED"
+	case StateHalfOpen:
+		return "HALF-OPEN"
+	case StateOpen:
+		return "OPEN"
+	default:
+		return "UNKNOWN"
+	}
+}
+
 func (cb *CircuitBreaker) AllowRequest() bool {
 	cb.mu.Lock()
 	defer cb.mu.Unlock()
@@ -70,4 +83,11 @@ func (cb *CircuitBreaker) RecordResult(statusCode int) {
 		cb.failures = 0
 		cb.state = StateClosed
 	}
+}
+
+func (cb *CircuitBreaker) SnapShot() (string, int) {
+	cb.mu.Lock()
+	defer cb.mu.Unlock()
+
+	return cb.state.String(), cb.failures
 }
