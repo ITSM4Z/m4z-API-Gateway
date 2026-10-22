@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -15,18 +16,87 @@ type ctxKey string
 
 const targetKey ctxKey = "target"
 
+type ClientBucket struct {
+	tokens     float64
+	lastRefill time.Time
+}
+
+type RateLimiter struct {
+	mu         sync.Mutex
+	clients    map[string]*ClientBucket
+	maxTokens  float64
+	refillRate float64
+	next       http.Handler
+}
+
 type GatewayRouter struct {
 	mu     sync.RWMutex
 	routes map[string]*url.URL
 	proxy  *httputil.ReverseProxy
 }
 
+// handles the rate limiting by managing client's bucket tokens
+// to add: goroutine that checks if the bucket last refill > 10 minutes, delete the bucket to avoid memory overhead.
+func (rl *RateLimiter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	// get the host and discard the port
+	host, _, err := net.SplitHostPort(r.RemoteAddr)
+
+	if err != nil {
+		http.Error(w, "Bad Request", http.StatusBadRequest)
+		fmt.Printf("An Error occured while getting client's IP: %v", err)
+		return
+	}
+
+	clientIP := host
+
+	rl.mu.Lock()
+
+	bucket, ok := rl.clients[clientIP]
+
+	// if the client is a john doe; create a bucket with its IP
+	if !ok {
+		bucket = &ClientBucket{
+			tokens:     rl.maxTokens,
+			lastRefill: time.Now(),
+		}
+
+		rl.clients[clientIP] = bucket
+	}
+
+	// seconds since last token refill
+	elapsed := time.Since(bucket.lastRefill).Seconds()
+
+	// refill client's tokens every second with the RateLimiter refill rate
+	bucket.tokens += elapsed * rl.refillRate
+
+	if bucket.tokens > rl.maxTokens {
+		bucket.tokens = rl.maxTokens
+	}
+
+	bucket.lastRefill = time.Now()
+
+	// if the client consumed all of its tokens, unlock then return a 429 status
+	if bucket.tokens < 1.0 {
+		rl.mu.Unlock()
+		http.Error(w, "Too Many Requests", http.StatusTooManyRequests)
+		return
+	}
+
+	// otherwise consume 1.0 token, unlock then move to the Gateway
+	bucket.tokens -= 1.0
+	rl.mu.Unlock()
+	rl.next.ServeHTTP(w, r)
+}
+
+// checks if the requested path exists in the Gateway's routes
+// if so, move to the proxy. Otherwise return 404 status
 func (g *GatewayRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mu.RLock()
 
 	for prefix, targetURL := range g.routes {
 		if strings.HasPrefix(r.URL.Path, prefix) {
 			ctx := context.WithValue(r.Context(), targetKey, targetURL)
+			g.mu.RUnlock()
 			g.proxy.ServeHTTP(w, r.WithContext(ctx))
 			return
 		}
@@ -92,9 +162,16 @@ func main() {
 		proxy:  &gatewayReverseProxy,
 	}
 
+	rateLimiter := RateLimiter{
+		clients:    make(map[string]*ClientBucket),
+		maxTokens:  5,
+		refillRate: 1,
+		next:       &gatewayRouter,
+	}
+
 	s := &http.Server{
 		Addr:           ":8080",
-		Handler:        &gatewayRouter,
+		Handler:        &rateLimiter,
 		ReadTimeout:    10 * time.Second,
 		WriteTimeout:   10 * time.Second,
 		MaxHeaderBytes: 1 << 20,
