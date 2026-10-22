@@ -13,9 +13,14 @@ type ctxKey string
 
 const targetKey ctxKey = "target"
 
+type RouteConfig struct {
+	URL     *url.URL
+	Breaker *CircuitBreaker
+}
+
 type GatewayRouter struct {
 	mu     sync.RWMutex
-	routes map[string]*url.URL
+	routes map[string]*RouteConfig
 	proxy  *httputil.ReverseProxy
 }
 
@@ -25,13 +30,13 @@ func (g *GatewayRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	g.mu.RLock()
 
 	var matchedPrefix string
-	var targetURL *url.URL
+	var targetRoute *RouteConfig
 	found := false
 
 	for prefix, target := range g.routes {
 		if matchesPrefix(r.URL.Path, prefix) && len(prefix) > len(matchedPrefix) {
 			matchedPrefix = prefix
-			targetURL = target
+			targetRoute = target
 			found = true
 		}
 	}
@@ -43,8 +48,19 @@ func (g *GatewayRouter) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	ctx := context.WithValue(r.Context(), targetKey, targetURL)
-	g.proxy.ServeHTTP(w, r.WithContext(ctx))
+	if !targetRoute.Breaker.AllowRequest() {
+		http.Error(w, "Service Unavailable", http.StatusServiceUnavailable)
+		return
+	}
+
+	rec := &statusRecorder{
+		ResponseWriter: w,
+		statusCode:     http.StatusOK,
+	}
+
+	ctx := context.WithValue(r.Context(), targetKey, targetRoute.URL)
+	g.proxy.ServeHTTP(rec, r.WithContext(ctx))
+	targetRoute.Breaker.RecordResult(rec.statusCode)
 }
 
 func matchesPrefix(path, prefix string) bool {
